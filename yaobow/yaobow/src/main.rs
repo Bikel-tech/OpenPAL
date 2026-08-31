@@ -24,6 +24,17 @@ pub fn main() {
     init_logger();
     register_opengb_video_decoders();
 
+    // Keep the MoltenVK-referenced ___isPlatformVersionAtLeast shim alive (see
+    // definition above). Volatile store from the live entry point guarantees the
+    // symbol survives both LLVM DCE and ld -dead_strip.
+    #[cfg(target_os = "ios")]
+    unsafe {
+        core::ptr::write_volatile(
+            core::ptr::addr_of_mut!(IOS_SHIM_KEEP),
+            ___isPlatformVersionAtLeast as *const (),
+        );
+    }
+
     #[cfg(vita)]
     {
         run_openpal4();
@@ -104,15 +115,16 @@ pub extern "C" fn ___isPlatformVersionAtLeast(
     _major: u32,
     _minor: u32,
     _subminor: u32,
-) -> bool {
-    true
+) -> i32 {
+    1
 }
 
-// Force the linker to keep the shim above. The Mach-O linker's `-dead_strip`
-// would otherwise discard an unreferenced #[no_mangle] fn, leaving the symbol
-// undefined for libMoltenVK.a. A #[used] static that holds its address makes the
-// shim part of the live set across both rustc codegen and ld dead_strip.
+// Force the linker to keep the shim above. The shim is referenced by the
+// statically linked libMoltenVK.a, but nothing in Rust calls it, so both LLVM
+// (release DCE) and ld -dead_strip would discard it, leaving the symbol
+// undefined. main() writes its address into this #[used] static via a volatile
+// store, making the symbol reachable from the live entry point so neither the
+// compiler nor the linker can drop it.
 #[cfg(target_os = "ios")]
 #[used]
-static _FORCE_IS_PLATFORM_VERSION_AT_LEAST: unsafe extern "C" fn(u32, u32, u32, u32) -> bool =
-    ___isPlatformVersionAtLeast;
+static mut IOS_SHIM_KEEP: *const () = core::ptr::null();
