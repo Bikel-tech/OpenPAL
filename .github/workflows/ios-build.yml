@@ -18,10 +18,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust nightly + aarch64-apple-ios target
+      - name: Install Rust nightly (pinned to OpenPAL's active era) + aarch64-apple-ios target
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
+          # Pin to a nightly from OpenPAL's active era (2024-07). Newer nightlies
+          # tightened the `specialization` feature and break hashbrown 0.12.3
+          # with "cannot specialize on trait Copy".
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2024-07-01
           source "$HOME/.cargo/env"
+          rustup default nightly-2024-07-01
           rustup target add aarch64-apple-ios
           rustc --version && cargo --version
 
@@ -35,7 +39,10 @@ jobs:
       - name: Build yaobow for aarch64-apple-ios (release)
         run: |
           source "$HOME/.cargo/env"
-          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tee build.log | tail -80
+          set -o pipefail
+          # tee captures full output; pipefail makes the step fail if cargo fails
+          # (no trailing `| tail` that would swallow the exit code).
+          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tee build.log
 
       - name: Upload build log (always)
         if: always()
