@@ -43,7 +43,7 @@ jobs:
 
       - name: Hand-pack unsigned IPA
         run: |
-          set -o pipefail
+          set -euo pipefail
           source "$HOME/.cargo/env"
           BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1)
           APP=Payload/yaobow.app
@@ -52,26 +52,29 @@ jobs:
           cp "$BIN" "$APP/yaobow"
           chmod +x "$APP/yaobow"
 
-          echo "=== locating asset zips ==="
-          find . -name '*-assets.zip' 2>/dev/null | tee /tmp/assetzips.txt
-          while read -r z; do
-            [ -n "$z" ] || continue
-            echo "copying asset: $z"
-            cp "$z" "$APP/" || echo "WARN copy failed: $z"
-          done < /tmp/assetzips.txt
+          echo "=== packaging assets (submodule dir -> yaobow-assets.zip) ==="
+          pushd yaobow/yaobow-assets
+          zip -r "$GITHUB_WORKSPACE/$APP/yaobow-assets.zip" . -x '*.git*'
+          popd
+          ls -la "$APP/yaobow-assets.zip"
 
-          echo "=== bundling MoltenVK (libvulkan for ash::loaded dlopen) ==="
-          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar || \
-          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
+          echo "=== bundling MoltenVK (Vulkan loader for ash::Entry::load) ==="
+          MV_URL=$(curl -fsSL https://api.github.com/repos/KhronosGroup/MoltenVK/releases/latest \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print([a['browser_download_url'] for a in d['assets'] if a['name']=='MoltenVK-ios.tar'][0])")
+          echo "MV_URL=$MV_URL"
+          curl -fSL -o /tmp/mvk.tar "$MV_URL"
           tar xf /tmp/mvk.tar -C /tmp
-          MVLIB=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' -path '*ios*' | head -1)
-          echo "MVLIB=$MVLIB"
-          if [ -n "$MVLIB" ]; then
-            cp "$MVLIB" "$APP/Frameworks/libvulkan.dylib"
-            echo "bundled libvulkan.dylib"
-          else
-            echo "WARN: MoltenVK lib not found"
-          fi
+          MVDIR=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' 2>/dev/null | head -1)
+          echo "MVDIR=$MVDIR"
+          [ -n "$MVDIR" ] || { echo "ERR: libMoltenVK.dylib not found inside MoltenVK-ios.tar"; exit 1; }
+          cp "$MVDIR" "$APP/Frameworks/libMoltenVK.dylib"
+          cp "$MVDIR" "$APP/Frameworks/libvulkan.dylib"
+          echo "bundled MoltenVK as libMoltenVK.dylib and libvulkan.dylib"
+          ls -la "$APP/Frameworks"
+
+          echo "=== add @executable_path/Frameworks rpath so dyld finds the bundled dylib ==="
+          xcrun install_name_tool -add_rpath @executable_path/Frameworks "$APP/yaobow" || echo "WARN: add_rpath failed"
+          xcrun otool -l "$APP/yaobow" | grep -A2 LC_RPATH || true
 
           echo "=== Info.plist ==="
           cat > "$APP/Info.plist" <<'PLIST'
@@ -103,7 +106,7 @@ jobs:
           PLIST
 
           echo "=== .app contents ==="
-          ls -laR "$APP" | head -50
+          ls -laR "$APP" | head -60
 
           zip -r yaobow-unsigned.ipa Payload
           ls -la yaobow-unsigned.ipa

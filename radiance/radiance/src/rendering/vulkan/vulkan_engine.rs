@@ -105,7 +105,12 @@ impl VulkanRenderingEngine {
         window: &Window,
         imgui_context: &ImguiContext,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let entry = unsafe { Rc::new(Entry::load().unwrap()) };
+        let entry = unsafe {
+            Rc::new(Entry::load().expect(
+                "Failed to load Vulkan (MoltenVK). Make sure libMoltenVK.dylib / libvulkan.dylib is bundled \
+                 in the app Frameworks/ directory and the executable has an @executable_path/Frameworks rpath.",
+            ))
+        };
         let instance = Rc::new(Instance::new(entry.clone()));
         let physical_device = creation_helpers::get_physical_device(&instance.vk_instance())?;
 
