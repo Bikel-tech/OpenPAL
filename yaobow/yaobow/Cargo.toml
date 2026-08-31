@@ -70,3 +70,6 @@ orientation = "portrait"
 [build-dependencies]
 cfg_aliases = "0.2"
 vergen = { version = "8.0.0", features = [ "build", "git", "gitcl" ]}
+
+# Enable cargo-mobile2 iOS project generation for the ios-feasibility port.
+[package.metadata.apple]

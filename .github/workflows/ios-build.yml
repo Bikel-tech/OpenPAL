@@ -1,4 +1,4 @@
-name: iOS build (feasibility - compile)
+name: iOS build (feasibility - package unsigned IPA)
 
 on:
   push:
@@ -18,35 +18,85 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust nightly (pinned to OpenPAL's active era) + aarch64-apple-ios target
+      - name: Install Rust (pinned nightly for OpenPAL + stable for cargo-mobile2) + aarch64-apple-ios target
         run: |
-          # Pin to a nightly from OpenPAL's active era (2024-07). Newer nightlies
-          # tightened the `specialization` feature and break hashbrown 0.12.3
-          # with "cannot specialize on trait Copy".
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2024-07-01
           source "$HOME/.cargo/env"
+          # OpenPAL needs the pinned nightly (newer nightlies break hashbrown specialization)
           rustup default nightly-2024-07-01
           rustup target add aarch64-apple-ios
+          # cargo-mobile2 itself is a modern crate; build it with stable to avoid nightly incompat
+          rustup toolchain install stable
           rustc --version && cargo --version
 
-      - name: Install glslang (provides glslangValidator for shader compilation)
+      - name: Install glslang + xcodegen (prebuilt)
         run: |
-          # glslc (Vulkan SDK) is preferred by build.rs; glslangValidator is the
-          # Homebrew-provided fallback that build.rs uses when glslc is absent.
-          brew install glslang
+          brew install glslang xcodegen
           which glslangValidator || echo "WARN: glslangValidator not found"
+          which xcodegen || echo "WARN: xcodegen not found"
 
-      - name: Build yaobow for aarch64-apple-ios (release)
+      - name: Install cargo-mobile2 (built with stable)
         run: |
           source "$HOME/.cargo/env"
+          cargo +stable install cargo-mobile2
+          cargo mobile --version
+
+      - name: Init mobile project (iOS only, non-interactive)
+        working-directory: yaobow/yaobow
+        env:
+          CI: "true"
+        run: |
+          source "$HOME/.cargo/env"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo mobile init -y --platform ios --skip-dev-tools --skip-targets-install
+
+      - name: Build unsigned IPA via xcodebuild
+        working-directory: yaobow/yaobow
+        run: |
           set -o pipefail
-          # tee captures full output; pipefail makes the step fail if cargo fails
-          # (no trailing `| tail` that would swallow the exit code).
-          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tee build.log
+          source "$HOME/.cargo/env"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          PROJ=$(ls gen/ios/*.xcodeproj 2>/dev/null | head -1)
+          echo "PROJECT=$PROJ"
+          if [ -z "$PROJ" ]; then echo "NO XCODE PROJECT GENERATED"; exit 1; fi
+          SCHEME=$(basename "$PROJ" .xcodeproj)
+          echo "SCHEME=$SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath /tmp/yaobow.xcarchive archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= 2>&1 | tail -300
+          APP=$(find /tmp/yaobow.xcarchive/Products/Applications -name '*.app' | head -1)
+          echo "APP=$APP"
+          if [ -z "$APP" ]; then echo "NO .app IN ARCHIVE"; exit 1; fi
+          mkdir -p Payload
+          cp -r "$APP" Payload/
+          APPDIR=$(ls -d Payload/*.app | head -1)
+          # Bundle OpenPAL UI assets next to the executable (ASSET_PATH for ios = "yaobow-assets.zip")
+          ZIP=$(find . -name 'yaobow-assets.zip' | head -1)
+          if [ -n "$ZIP" ]; then echo "copying assets: $ZIP"; cp "$ZIP" "$APPDIR/"; else echo "WARN: yaobow-assets.zip not found"; fi
+          # Ensure MoltenVK (libvulkan) is present so ash can dlopen it at runtime
+          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar
+          tar xf /tmp/mvk.tar -C /tmp
+          MVLIB=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' -path '*ios*' | head -1)
+          echo "MVLIB=$MVLIB"
+          if [ -n "$MVLIB" ]; then mkdir -p "$APPDIR/Frameworks"; cp "$MVLIB" "$APPDIR/Frameworks/libvulkan.dylib"; fi
+          echo "=== .app contents ==="
+          ls -laR "$APPDIR" | head -60
+          zip -r yaobow-unsigned.ipa Payload
+          ls -la yaobow-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yaobow-ios-unsigned
+          path: yaobow/yaobow/yaobow-unsigned.ipa
+          if-no-files-found: warn
 
       - name: Upload build log (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
-          path: build.log
+          path: yaobow/yaobow/build.log
+          if-no-files-found: ignore
