@@ -107,3 +107,12 @@ pub extern "C" fn ___isPlatformVersionAtLeast(
 ) -> bool {
     true
 }
+
+// Force the linker to keep the shim above. The Mach-O linker's `-dead_strip`
+// would otherwise discard an unreferenced #[no_mangle] fn, leaving the symbol
+// undefined for libMoltenVK.a. A #[used] static that holds its address makes the
+// shim part of the live set across both rustc codegen and ld dead_strip.
+#[cfg(target_os = "ios")]
+#[used]
+static _FORCE_IS_PLATFORM_VERSION_AT_LEAST: unsafe extern "C" fn(u32, u32, u32, u32) -> bool =
+    ___isPlatformVersionAtLeast;
