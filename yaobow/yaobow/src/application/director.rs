@@ -168,7 +168,7 @@ impl TitleSelectionDirector {
 
         for path in &candidates {
             if Path::exists(path) {
-                let is_zip = path.extension().map_or(false, |e| e == "zip");
+                let is_zip = path.extension().and_then(|e| e.to_str()) == Some("zip");
                 if is_zip {
                     let local = ZipFs::new(std::fs::File::open(path).unwrap());
                     vfs = vfs.mount(PathBuf::from("/"), local);

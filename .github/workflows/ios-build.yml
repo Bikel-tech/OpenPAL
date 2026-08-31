@@ -87,7 +87,7 @@ jobs:
           echo "SDKROOT=$SDKROOT  IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
           if [ "${MVK_STATIC:-0}" = "1" ]; then
             echo ">>> static MoltenVK: linking libMoltenVK.a from $MVDIR"
-            RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation -l framework=OpenAL"
+            RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
             # libMoltenVK.a references ___isPlatformVersionAtLeast (a clang/compiler-rt
             # helper rustc does not link on iOS). We define it via global_asm in
             # main.rs (emitted unconditionally, immune to Rust DCE). Mark it as an
