@@ -49,13 +49,35 @@ fn build_vulkan_shader(shader_name: &str) {
         return;
     }
 
-    let _ = Command::new("glslangValidator")
-        .current_dir(&out_dir)
+    // Fallback: glslangValidator (brew install glslang). It accepts -o just like
+    // glslc. Without -o it writes the .spv next to the *source*, which is wrong.
+    let glslang_ok = Command::new("glslangValidator")
         .arg("-V")
         .arg(path_str)
+        .arg("-o")
+        .arg(&shader_out)
         .status()
-        .expect(&format!(
-            "Failed to compile shader {} with glslc or glslangValidator",
-            shader_name
-        ));
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if glslang_ok {
+        println!("cargo:warning=compiled {} with glslangValidator", shader_name);
+        return;
+    }
+
+    // Last resort: a precompiled .spv committed alongside the source (no compiler
+    // needed at build time). Keeps CI independent of Vulkan SDK / glslang.
+    let prebuilt = std::path::PathBuf::from(manifest_dir)
+        .join("src/rendering/vulkan/shaders")
+        .join(format!("{}.spv", shader_name));
+    if prebuilt.exists() {
+        std::fs::copy(&prebuilt, &shader_out).expect("copy prebuilt spv");
+        println!("cargo:warning=used prebuilt {} .spv", shader_name);
+        return;
+    }
+
+    panic!(
+        "Failed to compile shader {}: no glslc, glslangValidator failed, and no prebuilt .spv present",
+        shader_name
+    );
 }
