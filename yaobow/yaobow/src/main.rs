@@ -25,15 +25,7 @@ mod playground;
 #[cfg(target_os = "ios")]
 fn install_ios_crash_logger() {
     std::panic::set_hook(Box::new(|info| {
-        let loc = info.location().map(|l| l.to_string()).unwrap_or_default();
-        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
-            (*s).to_string()
-        } else if let Some(s) = info.payload().downcast_ref::<String>() {
-            s.clone()
-        } else {
-            format!("{:?}", info.payload())
-        };
-        let msg = format!("[yaobow panic] {} @ {}\n", payload, loc);
+        let msg = format!("[yaobow panic] {}\n", info);
         eprintln!("{}", msg);
         if let Ok(home) = std::env::var("HOME") {
             let _ = std::fs::create_dir_all(format!("{}/Documents", home));

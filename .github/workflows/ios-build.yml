@@ -99,7 +99,7 @@ jobs:
           else
             echo ">>> dynamic MoltenVK path (no extra link flags)"
           fi
-          cargo build -p yaobow --bin yaobow --target aarch64-apple-ios --release 2>&1 | tail -60
+          cargo build -p yaobow --bin yaobow --target aarch64-apple-ios --release 2>&1 | tee /tmp/build.log | tail -60
           BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1 || true)
           echo "BIN=$BIN"
           [ -n "$BIN" ] || { echo "NO BINARY BUILT"; exit 1; }
@@ -178,3 +178,27 @@ jobs:
           name: yaobow-ios-unsigned
           path: yaobow-unsigned.ipa
           if-no-files-found: warn
+
+      - name: Report build error as commit comment
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          pat = os.popen("git remote get-url origin | sed -E 's#.*://([^@]+)@.*#\\1#'").read().strip()
+          sha = os.environ["GITHUB_SHA"]
+          rid = os.environ["GITHUB_RUN_ID"]
+          log = open("/tmp/build.log").read()[-9000:] if os.path.exists("/tmp/build.log") else "NO BUILD LOG CAPTURED"
+          body = "BUILD FAILED run %s sha %s:\n```\n%s\n```" % (rid, sha, log)
+          data = json.dumps({"body": body}).encode()
+          req = urllib.request.Request(
+              "https://api.github.com/repos/Bikel-tech/OpenPAL/commits/%s/comments" % sha,
+              data=data, method="POST")
+          req.add_header("Authorization", "Bearer " + pat)
+          req.add_header("Accept", "application/vnd.github+json")
+          req.add_header("Content-Type", "application/json")
+          try:
+              urllib.request.urlopen(req, timeout=30).read()
+              print("COMMENT POSTED")
+          except Exception as e:
+              print("COMMENT ERR", e)
+          PY
