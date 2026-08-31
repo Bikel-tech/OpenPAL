@@ -1,4 +1,4 @@
-name: iOS build (feasibility - package unsigned IPA)
+name: iOS build (feasibility - hand-packed unsigned IPA)
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
 jobs:
   ios-build:
@@ -18,105 +17,94 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust (pinned nightly for OpenPAL + stable for cargo-mobile2) + aarch64-apple-ios target
+      - name: Install Rust (pinned nightly for OpenPAL) + aarch64-apple-ios target
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2024-07-01
           source "$HOME/.cargo/env"
-          # OpenPAL needs the pinned nightly (newer nightlies break hashbrown specialization)
           rustup default nightly-2024-07-01
           rustup target add aarch64-apple-ios
-          # cargo-mobile2 itself is a modern crate; build it with stable to avoid nightly incompat
-          rustup toolchain install stable
           rustc --version && cargo --version
 
-      - name: Install glslang + xcodegen + cocoapods
+      - name: Install glslang (shader compile used by radiance build.rs)
         run: |
-          brew install glslang xcodegen cocoapods || true
+          brew install glslang || true
           which glslangValidator || echo "WARN: glslangValidator not found"
-          which xcodegen || echo "WARN: xcodegen not found"
-          which pod || echo "WARN: pod not found"
 
-      - name: Install cargo-mobile2 (built with stable)
-        run: |
-          source "$HOME/.cargo/env"
-          cargo +stable install cargo-mobile2
-          cargo mobile --version
-
-      - name: Init mobile project (iOS only)
-        working-directory: yaobow/yaobow
-        env:
-          CI: "true"
-        run: |
-          source "$HOME/.cargo/env"
-          export PATH="$HOME/.cargo/bin:$PATH"
-          # cargo-mobile2 `init` has NO --platform flag; it decides platforms from
-          # [package.metadata.apple] / [package.metadata.android] in Cargo.toml.
-          # yaobow also carries android metadata, which would make init try to
-          # generate an Android project on this macOS runner (and fail for lack of
-          # the Android SDK). Temporarily comment out the android section so init
-          # only generates the Apple (iOS) project, then restore it.
-          cp Cargo.toml Cargo.toml.bak
-          python3 - <<'PY'
-          import re
-          s = open('Cargo.toml').read()
-          pat = re.compile(r'\n\[package\.metadata\.android\].*?(?=\n\[[a-zA-Z])', re.S)
-          def comment(m):
-              return '\n' + '\n'.join(('#' + ln) if ln else ln for ln in m.group(0).splitlines())
-          s2 = pat.sub(comment, s)
-          open('Cargo.toml', 'w').write(s2)
-          print('--- android metadata temporarily commented out ---')
-          PY
-          cargo mobile init -y --skip-dev-tools --skip-targets-install
-          mv Cargo.toml.bak Cargo.toml
-          echo '=== gen tree ==='
-          find gen -maxdepth 4 | head -80 || true
-          echo '=== rust entry symbol referenced by generated iOS app ==='
-          grep -rIn "run_app\|runApp\|start_app\|startApp\|wry_run\|extern \"C\"" gen 2>/dev/null | grep -vi "target/" | head -30 || true
-
-      - name: Build unsigned IPA via xcodebuild
-        working-directory: yaobow/yaobow
+      - name: Build yaobow for aarch64-apple-ios (release)
         run: |
           set -o pipefail
           source "$HOME/.cargo/env"
-          export PATH="$HOME/.cargo/bin:$PATH"
-          # Ensure the .xcodeproj exists (cargo-mobile2 uses xcodegen under the hood;
-          # regenerate defensively if needed).
-          PROJ=$(find gen -name '*.xcodeproj' 2>/dev/null | head -1)
-          if [ -z "$PROJ" ]; then
-            YML=$(find gen -name 'project.yml' 2>/dev/null | head -1)
-            if [ -n "$YML" ]; then
-              echo "regenerating xcodeproj from $YML"
-              (cd "$(dirname "$YML")" && xcodegen generate)
-              PROJ=$(find gen -name '*.xcodeproj' 2>/dev/null | head -1)
-            fi
-          fi
-          echo "PROJECT=$PROJ"
-          if [ -z "$PROJ" ]; then echo "NO XCODE PROJECT GENERATED"; exit 1; fi
-          SCHEME=$(xcodebuild -list -project "$PROJ" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^[[:space:]]/{print $1;exit}')
-          echo "SCHEME=$SCHEME"
-          if [ -z "$SCHEME" ]; then echo "NO SCHEME FOUND"; xcodebuild -list -project "$PROJ"; exit 1; fi
-          xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -archivePath /tmp/yaobow.xcarchive archive \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= 2>&1 | tail -400
-          APP=$(find /tmp/yaobow.xcarchive/Products/Applications -name '*.app' | head -1)
-          echo "APP=$APP"
-          if [ -z "$APP" ]; then echo "NO .app IN ARCHIVE"; exit 1; fi
-          mkdir -p Payload
-          cp -r "$APP" Payload/
-          APPDIR=$(ls -d Payload/*.app | head -1)
-          # Bundle OpenPAL UI assets next to the executable (ASSET_PATH for ios = "yaobow-assets.zip")
-          ZIP=$(find . -name 'yaobow-assets.zip' | head -1)
-          if [ -n "$ZIP" ]; then echo "copying assets: $ZIP"; cp "$ZIP" "$APPDIR/"; else echo "WARN: yaobow-assets.zip not found"; fi
-          # Ensure MoltenVK (libvulkan) is present so ash can dlopen it at runtime
+          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tail -40
+          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1)
+          echo "BIN=$BIN"
+          [ -n "$BIN" ] || { echo "NO BINARY BUILT"; exit 1; }
+          ls -la "$BIN"
+          file "$BIN" || true
+
+      - name: Hand-pack unsigned IPA
+        run: |
+          set -o pipefail
+          source "$HOME/.cargo/env"
+          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1)
+          APP=Payload/yaobow.app
+          rm -rf Payload "$APP"
+          mkdir -p "$APP/Frameworks"
+          cp "$BIN" "$APP/yaobow"
+          chmod +x "$APP/yaobow"
+
+          echo "=== locating asset zips ==="
+          find . -name '*-assets.zip' 2>/dev/null | tee /tmp/assetzips.txt
+          while read -r z; do
+            [ -n "$z" ] || continue
+            echo "copying asset: $z"
+            cp "$z" "$APP/" || echo "WARN copy failed: $z"
+          done < /tmp/assetzips.txt
+
+          echo "=== bundling MoltenVK (libvulkan for ash::loaded dlopen) ==="
           curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar || \
           curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
           tar xf /tmp/mvk.tar -C /tmp
           MVLIB=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' -path '*ios*' | head -1)
           echo "MVLIB=$MVLIB"
-          if [ -n "$MVLIB" ]; then mkdir -p "$APPDIR/Frameworks"; cp "$MVLIB" "$APPDIR/Frameworks/libvulkan.dylib"; fi
+          if [ -n "$MVLIB" ]; then
+            cp "$MVLIB" "$APP/Frameworks/libvulkan.dylib"
+            echo "bundled libvulkan.dylib"
+          else
+            echo "WARN: MoltenVK lib not found"
+          fi
+
+          echo "=== Info.plist ==="
+          cat > "$APP/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>yaobow</string>
+            <key>CFBundleDisplayName</key><string>仙剑 iOS (feasibility)</string>
+            <key>CFBundleIdentifier</key><string>com.bikeltech.yaobow</string>
+            <key>CFBundleExecutable</key><string>yaobow</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleShortVersionString</key><string>0.1</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>MinimumOSVersion</key><string>12.0</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+            <key>UIRequiredDeviceCapabilities</key><array><string>metal</string><string>vulkan</string></array>
+            <key>UILaunchScreen</key><dict></dict>
+            <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+            <key>UISupportedInterfaceOrientations</key>
+              <array>
+                <string>UIInterfaceOrientationLandscapeLeft</string>
+                <string>UIInterfaceOrientationLandscapeRight</string>
+                <string>UIInterfaceOrientationPortrait</string>
+              </array>
+            <key>UIBackgroundModes</key><array><string>game</string></array>
+          </dict>
+          </plist>
+          PLIST
+
           echo "=== .app contents ==="
-          ls -laR "$APPDIR" | head -60
+          ls -laR "$APP" | head -50
+
           zip -r yaobow-unsigned.ipa Payload
           ls -la yaobow-unsigned.ipa
 
@@ -125,13 +113,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: yaobow-ios-unsigned
-          path: yaobow/yaobow/yaobow-unsigned.ipa
+          path: yaobow-unsigned.ipa
           if-no-files-found: warn
-
-      - name: Upload build log (always)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: yaobow/yaobow/build.log
-          if-no-files-found: ignore
