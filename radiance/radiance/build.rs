@@ -22,7 +22,7 @@ fn build_vulkan_shader(shader_name: &str) {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let path = std::fs::canonicalize(
-        std::path::PathBuf::from(manifest_dir)
+        std::path::Path::new(&manifest_dir)
             .join("src/rendering/vulkan/shaders")
             .join(shader_name),
     )
@@ -67,7 +67,7 @@ fn build_vulkan_shader(shader_name: &str) {
 
     // Last resort: a precompiled .spv committed alongside the source (no compiler
     // needed at build time). Keeps CI independent of Vulkan SDK / glslang.
-    let prebuilt = std::path::PathBuf::from(manifest_dir)
+    let prebuilt = std::path::Path::new(&manifest_dir)
         .join("src/rendering/vulkan/shaders")
         .join(format!("{}.spv", shader_name));
     if prebuilt.exists() {
