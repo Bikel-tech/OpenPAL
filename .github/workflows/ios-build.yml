@@ -29,11 +29,12 @@ jobs:
           rustup toolchain install stable
           rustc --version && cargo --version
 
-      - name: Install glslang + xcodegen (prebuilt)
+      - name: Install glslang + xcodegen + cocoapods
         run: |
-          brew install glslang xcodegen
+          brew install glslang xcodegen cocoapods || true
           which glslangValidator || echo "WARN: glslangValidator not found"
           which xcodegen || echo "WARN: xcodegen not found"
+          which pod || echo "WARN: pod not found"
 
       - name: Install cargo-mobile2 (built with stable)
         run: |
@@ -41,14 +42,36 @@ jobs:
           cargo +stable install cargo-mobile2
           cargo mobile --version
 
-      - name: Init mobile project (iOS only, non-interactive)
+      - name: Init mobile project (iOS only)
         working-directory: yaobow/yaobow
         env:
           CI: "true"
         run: |
           source "$HOME/.cargo/env"
           export PATH="$HOME/.cargo/bin:$PATH"
-          cargo mobile init -y --platform ios --skip-dev-tools --skip-targets-install
+          # cargo-mobile2 `init` has NO --platform flag; it decides platforms from
+          # [package.metadata.apple] / [package.metadata.android] in Cargo.toml.
+          # yaobow also carries android metadata, which would make init try to
+          # generate an Android project on this macOS runner (and fail for lack of
+          # the Android SDK). Temporarily comment out the android section so init
+          # only generates the Apple (iOS) project, then restore it.
+          cp Cargo.toml Cargo.toml.bak
+          python3 - <<'PY'
+          import re
+          s = open('Cargo.toml').read()
+          pat = re.compile(r'\n\[package\.metadata\.android\].*?(?=\n\[[a-zA-Z])', re.S)
+          def comment(m):
+              return '\n' + '\n'.join(('#' + ln) if ln else ln for ln in m.group(0).splitlines())
+          s2 = pat.sub(comment, s)
+          open('Cargo.toml', 'w').write(s2)
+          print('--- android metadata temporarily commented out ---')
+          PY
+          cargo mobile init -y --skip-dev-tools --skip-targets-install
+          mv Cargo.toml.bak Cargo.toml
+          echo '=== gen tree ==='
+          find gen -maxdepth 4 | head -80 || true
+          echo '=== rust entry symbol referenced by generated iOS app ==='
+          grep -rIn "run_app\|runApp\|start_app\|startApp\|wry_run\|extern \"C\"" gen 2>/dev/null | grep -vi "target/" | head -30 || true
 
       - name: Build unsigned IPA via xcodebuild
         working-directory: yaobow/yaobow
@@ -56,15 +79,26 @@ jobs:
           set -o pipefail
           source "$HOME/.cargo/env"
           export PATH="$HOME/.cargo/bin:$PATH"
-          PROJ=$(ls gen/ios/*.xcodeproj 2>/dev/null | head -1)
+          # Ensure the .xcodeproj exists (cargo-mobile2 uses xcodegen under the hood;
+          # regenerate defensively if needed).
+          PROJ=$(find gen -name '*.xcodeproj' 2>/dev/null | head -1)
+          if [ -z "$PROJ" ]; then
+            YML=$(find gen -name 'project.yml' 2>/dev/null | head -1)
+            if [ -n "$YML" ]; then
+              echo "regenerating xcodeproj from $YML"
+              (cd "$(dirname "$YML")" && xcodegen generate)
+              PROJ=$(find gen -name '*.xcodeproj' 2>/dev/null | head -1)
+            fi
+          fi
           echo "PROJECT=$PROJ"
           if [ -z "$PROJ" ]; then echo "NO XCODE PROJECT GENERATED"; exit 1; fi
-          SCHEME=$(basename "$PROJ" .xcodeproj)
+          SCHEME=$(xcodebuild -list -project "$PROJ" 2>/dev/null | awk '/Schemes:/{f=1;next} f&&/^[[:space:]]/{print $1;exit}')
           echo "SCHEME=$SCHEME"
+          if [ -z "$SCHEME" ]; then echo "NO SCHEME FOUND"; xcodebuild -list -project "$PROJ"; exit 1; fi
           xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath /tmp/yaobow.xcarchive archive \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= 2>&1 | tail -300
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= 2>&1 | tail -400
           APP=$(find /tmp/yaobow.xcarchive/Products/Applications -name '*.app' | head -1)
           echo "APP=$APP"
           if [ -z "$APP" ]; then echo "NO .app IN ARCHIVE"; exit 1; fi
@@ -75,7 +109,8 @@ jobs:
           ZIP=$(find . -name 'yaobow-assets.zip' | head -1)
           if [ -n "$ZIP" ]; then echo "copying assets: $ZIP"; cp "$ZIP" "$APPDIR/"; else echo "WARN: yaobow-assets.zip not found"; fi
           # Ensure MoltenVK (libvulkan) is present so ash can dlopen it at runtime
-          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar
+          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-ios.tar || \
+          curl -fSL -o /tmp/mvk.tar https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-ios.tar
           tar xf /tmp/mvk.tar -C /tmp
           MVLIB=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' -path '*ios*' | head -1)
           echo "MVLIB=$MVLIB"
