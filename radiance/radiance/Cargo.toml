@@ -29,7 +29,9 @@ toml = "0.7"
 uuid = "0.8"
 
 [target.'cfg(not(target_os = "vita"))'.dependencies]
-ash = { version = "0.37", default-features = false, features = ["loaded"] }
+# "linked" is required for iOS: MoltenVK ships only a static lib, so Vulkan entry
+# points must be resolved at link time (Entry::linked()). Desktop keeps using loaded.
+ash = { version = "0.37", default-features = false, features = ["loaded", "linked"] }
 ash-window = "0.12"
 imgui-rs-vulkan-renderer = { git = "https://github.com/dontpanic92/imgui-rs-vulkan-renderer", features = ["vma"] }
 imgui-winit-support = { version = "0.10", default-features = false}
