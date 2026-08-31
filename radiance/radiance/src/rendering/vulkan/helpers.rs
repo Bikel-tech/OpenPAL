@@ -17,7 +17,10 @@ pub fn instance_extension_names() -> Vec<*const c_char> {
 pub fn instance_extension_names() -> Vec<*const c_char> {
     vec![
         ash::extensions::khr::Surface::name().as_ptr(),
-        ash::extensions::ext::MetalSurface::name().as_ptr(),
+        // iOS uses the MoltenVK iOS surface extension (created from a UIView), NOT
+        // VK_EXT_metal_surface which only exists on macOS. Requesting the macOS-only
+        // extension here makes vkCreateInstance fail with VK_ERROR_EXTENSION_NOT_PRESENT.
+        ash::extensions::mvk::IOSSurface::name().as_ptr(),
         ash::extensions::ext::DebugUtils::name().as_ptr(),
         ash::vk::KhrPortabilityEnumerationFn::name().as_ptr(),
         ash::vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),

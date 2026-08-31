@@ -19,8 +19,33 @@ mod openpal5;
 mod openswd5;
 mod playground;
 
+// On iOS a panic otherwise just closes the app with no explanation. Capture the
+// message to a file in the app's Documents (exposed via UIFileSharingEnabled) and
+// to stderr (visible in the device console) so we can diagnose launch crashes.
+#[cfg(target_os = "ios")]
+fn install_ios_crash_logger() {
+    std::panic::set_hook(Box::new(|info| {
+        let loc = info.location().map(|l| l.to_string()).unwrap_or_default();
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!("{:?}", info.payload())
+        };
+        let msg = format!("[yaobow panic] {} @ {}\n", payload, loc);
+        eprintln!("{}", msg);
+        if let Ok(home) = std::env::var("HOME") {
+            let _ = std::fs::create_dir_all(format!("{}/Documents", home));
+            let path = format!("{}/Documents/yaobow_crash.log", home);
+            let _ = std::fs::write(&path, &msg);
+        }
+    }));
+}
+
 pub fn main() {
     radiance::application::Application::set_panic_hook();
+    install_ios_crash_logger();
     init_logger();
     register_opengb_video_decoders();
 

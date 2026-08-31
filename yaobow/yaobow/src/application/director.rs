@@ -141,25 +141,45 @@ impl TitleSelectionDirector {
 
     fn load_vfs() -> Option<Rc<MiniFs>> {
         let mut vfs = MiniFs::new(false);
-        let zip = PathBuf::from(ASSET_PATH);
-        let local1 = PathBuf::from("./yaobow/yaobow-assets");
-        let local2 = PathBuf::from("../yaobow-assets");
 
-        if Path::exists(&zip) {
-            let local = ZipFs::new(std::fs::File::open(zip).unwrap());
-            vfs = vfs.mount(PathBuf::from("/"), local);
-            Some(Rc::new(vfs))
-        } else if Path::exists(&local1) {
-            let local = LocalFs::new(&local1);
-            vfs = vfs.mount(PathBuf::from("/"), local);
-            Some(Rc::new(vfs))
-        } else if Path::exists(&local2) {
-            let local = LocalFs::new(&local2);
-            vfs = vfs.mount(PathBuf::from("/"), local);
-            Some(Rc::new(vfs))
-        } else {
-            None
+        // On iOS the process working directory is NOT the .app bundle, so the
+        // relative paths used on desktop never resolve. Resolve candidates against
+        // the executable's parent directory (the .app bundle) instead.
+        #[cfg(target_os = "ios")]
+        let candidates: Vec<PathBuf> = {
+            let exe_parent = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."));
+            vec![
+                exe_parent.join("yaobow-assets.zip"),
+                exe_parent.join("yaobow-assets"),
+                PathBuf::from(ASSET_PATH),
+                PathBuf::from("./yaobow/yaobow-assets"),
+                PathBuf::from("../yaobow-assets"),
+            ]
+        };
+        #[cfg(not(target_os = "ios"))]
+        let candidates: Vec<PathBuf> = vec![
+            PathBuf::from(ASSET_PATH),
+            PathBuf::from("./yaobow/yaobow-assets"),
+            PathBuf::from("../yaobow-assets"),
+        ];
+
+        for path in &candidates {
+            if Path::exists(path) {
+                let is_zip = path.extension().map_or(false, |e| e == "zip");
+                if is_zip {
+                    let local = ZipFs::new(std::fs::File::open(path).unwrap());
+                    vfs = vfs.mount(PathBuf::from("/"), local);
+                } else {
+                    let local = LocalFs::new(path);
+                    vfs = vfs.mount(PathBuf::from("/"), local);
+                }
+                return Some(Rc::new(vfs));
+            }
         }
+        None
     }
 }
 

@@ -87,7 +87,7 @@ jobs:
           echo "SDKROOT=$SDKROOT  IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
           if [ "${MVK_STATIC:-0}" = "1" ]; then
             echo ">>> static MoltenVK: linking libMoltenVK.a from $MVDIR"
-            RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
+            RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation -l framework=OpenAL"
             # libMoltenVK.a references ___isPlatformVersionAtLeast (a clang/compiler-rt
             # helper rustc does not link on iOS). We define it via global_asm in
             # main.rs (emitted unconditionally, immune to Rust DCE). Mark it as an
@@ -147,8 +147,10 @@ jobs:
             <key>CFBundleVersion</key><string>1</string>
             <key>CFBundleShortVersionString</key><string>0.1</string>
             <key>CFBundlePackageType</key><string>APPL</string>
-            <key>MinimumOSVersion</key><string>12.0</string>
+            <key>MinimumOSVersion</key><string>15.0</string>
             <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+            <key>UIFileSharingEnabled</key><true/>
+            <key>LSSupportsOpeningDocumentsInPlace</key><true/>
             <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string><string>metal</string></array>
             <key>UILaunchScreen</key><dict></dict>
             <key>UIApplicationSupportsIndirectInputEvents</key><true/>
