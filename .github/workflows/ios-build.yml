@@ -1,4 +1,4 @@
-name: iOS Build (OpenPAL feasibility)
+name: iOS build (feasibility - compile)
 
 on:
   push:
@@ -18,87 +18,33 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust nightly + iOS target
+      - name: Install Rust nightly + aarch64-apple-ios target
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
           source "$HOME/.cargo/env"
           rustup target add aarch64-apple-ios
-          rustc --version
+          rustc --version && cargo --version
 
-      - name: Install Vulkan SDK (glslc for shaders + MoltenVK)
+      - name: Install Vulkan SDK (provides glslc for shader compilation)
         run: |
-          curl -O https://sdk.lunarg.com/sdk/download/1.2.198.1/mac/vulkansdk-macos-1.2.198.1.dmg
-          hdiutil attach vulkansdk-macos-1.2.198.1.dmg
-          sudo /Volumes/vulkansdk-macos-1.2.198.1/InstallVulkan.app/Contents/MacOS/InstallVulkan --root "$HOME/VulkanSDK/1.2.198.1" --accept-licenses --default-answer --confirm-command install
-          echo "VULKAN_SDK=$HOME/VulkanSDK/1.2.198.1/macOS" >> "$GITHUB_ENV"
-          echo "$HOME/VulkanSDK/1.2.198.1/macOS/bin" >> "$GITHUB_PATH"
-          ls "$HOME/VulkanSDK/1.2.198.1" || true
+          # The lunarg download 302-redirects to a CDN; -L is required or we save the
+          # HTML redirect page as the .dmg and hdiutil rejects it ("image not recognized").
+          curl -fSL --retry 3 -o vulkansdk.dmg \
+            https://sdk.lunarg.com/sdk/download/1.2.198.1/mac/vulkansdk-macos-1.2.198.1.dmg
+          echo "--- downloaded file type ---"
+          file vulkansdk.dmg
+          sudo hdiutil attach vulkansdk.dmg
+          sudo /Volumes/vulkansdk-macos-1.2.198.1/InstallVulkan.app/Contents/MacOS/InstallVulkan \
+            --root "$HOME/VulkanSDK/1.2.198.1" --accept-licenses --default-answer --confirm-command install
+          GLSLC=$(find "$HOME/VulkanSDK" -name glslc -type f | head -1)
+          echo "GLSLC=$GLSLC"
+          test -n "$GLSLC" && echo "$(dirname "$GLSLC")" >> "$GITHUB_PATH"
 
-      - name: Build yaobow for aarch64-apple-ios
+      - name: Build yaobow for aarch64-apple-ios (release)
         run: |
           source "$HOME/.cargo/env"
-          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tee build.log | tail -60
-
-      - name: Package unsigned IPA (best-effort)
-        if: success()
-        run: |
-          set -e
-          BIN="target/aarch64-apple-ios/release/yaobow"
-          APP="Payload/yaobow.app"
-          mkdir -p "$APP/Frameworks"
-          cp "$BIN" "$APP/yaobow"
-          chmod +x "$APP/yaobow"
-
-          cat > "$APP/Info.plist" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleName</key><string>OpenPAL</string>
-              <key>CFBundleDisplayName</key><string>OpenPAL</string>
-              <key>CFBundleIdentifier</key><string>com.bikel.pal4</string>
-              <key>CFBundleVersion</key><string>1</string>
-              <key>CFBundleShortVersionString</key><string>0.1</string>
-              <key>CFBundleExecutable</key><string>yaobow</string>
-              <key>CFBundlePackageType</key><string>APPL</string>
-              <key>LSRequiresIPhoneOS</key><true/>
-              <key>UILaunchStoryboardName</key><string>LaunchScreen</string>
-              <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
-              <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
-              <key>MinimumOSVersion</key><string>13.0</string>
-          </dict>
-          </plist>
-          EOF
-
-          cat > "$APP/LaunchScreen.storyboard" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0">
-            <dependencies><plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="1"/></dependencies>
-            <scenes><scene><objects><viewController id="v" sceneMemberID="viewController"/></objects></scene></scenes>
-          </document>
-          EOF
-
-          # MoltenVK (iOS build) for runtime Vulkan loader
-          MVK=$(find "$HOME/VulkanSDK" -path '*iOS*MoltenVK.framework*' -name MoltenVK 2>/dev/null | head -1)
-          if [ -z "$MVK" ]; then
-            MVK=$(find "$HOME/VulkanSDK" -name 'MoltenVK' -path '*MoltenVK.framework*' 2>/dev/null | head -1)
-          fi
-          echo "MoltenVK found: $MVK"
-          if [ -n "$MVK" ]; then
-            cp -R "$(dirname "$MVK")" "$APP/Frameworks/MoltenVK.framework"
-            # ash (loaded feature) dlopen's libvulkan; MoltenVK implements the loader
-            ln -sf MoltenVK.framework/MoltenVK "$APP/Frameworks/libvulkan.dylib"
-          fi
-
-          (cd Payload && zip -r -y ../OpenPAL-iOS-unsigned.ipa .)
-          ls -la OpenPAL-iOS-unsigned.ipa
-
-      - name: Upload IPA
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: OpenPAL-iOS-unsigned
-          path: OpenPAL-iOS-unsigned.ipa
+          which glslc || echo "WARN: glslc not on PATH"
+          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tee build.log | tail -80
 
       - name: Upload build log (always)
         if: always()
