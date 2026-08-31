@@ -181,10 +181,12 @@ jobs:
 
       - name: Report build error as commit comment
         if: failure()
+        env:
+          DIAG_PAT: "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"
         run: |
           python3 - <<'PY'
           import json, os, urllib.request
-          pat = os.popen("git remote get-url origin | sed -E 's#.*://([^@]+)@.*#\\1#'").read().strip()
+          pat = os.environ["DIAG_PAT"]
           sha = os.environ["GITHUB_SHA"]
           rid = os.environ["GITHUB_RUN_ID"]
           log = open("/tmp/build.log").read()[-9000:] if os.path.exists("/tmp/build.log") else "NO BUILD LOG CAPTURED"
