@@ -80,10 +80,23 @@ jobs:
           source "$HOME/.cargo/env"
           SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
           export SDKROOT
-          echo "SDKROOT=$SDKROOT"
+          # MoltenVK references ___isPlatformVersionAtLeast, which libSystem only
+          # exports on iOS 14+. Raise the deployment target so the linker can
+          # resolve it (the target device is a modern iPhone anyway).
+          export IPHONEOS_DEPLOYMENT_TARGET=15.0
+          echo "SDKROOT=$SDKROOT  IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
           if [ "${MVK_STATIC:-0}" = "1" ]; then
             echo ">>> static MoltenVK: linking libMoltenVK.a from $MVDIR"
-            export RUSTFLAGS="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
+            RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
+            # Provide the clang runtime (defines ___isPlatformVersionAtLeast) if present.
+            CLANG_RT=$(find "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang" -name 'libclang_rt.ios.a' 2>/dev/null | head -1 || true)
+            if [ -n "$CLANG_RT" ]; then
+              RF="$RF -L native=$(dirname "$CLANG_RT") -l static=clang_rt.ios"
+              echo ">>> adding clang runtime: $CLANG_RT"
+            else
+              echo ">>> WARN: libclang_rt.ios.a not found; relying on deployment target for ___isPlatformVersionAtLeast"
+            fi
+            export RUSTFLAGS="$RF"
             echo "RUSTFLAGS=$RUSTFLAGS"
           else
             echo ">>> dynamic MoltenVK path (no extra link flags)"
