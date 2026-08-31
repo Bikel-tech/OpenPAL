@@ -26,6 +26,11 @@ xxhash-rust = { git = "https://github.com/dontpanic92/xxhash-rust", branch = "ya
 [patch."https://github.com/meh/rust-ffmpeg"]
 ffmpeg = { git = "https://github.com/dontpanic92/rust-ffmpeg", branch = "yaobow2" }
 
+# iOS: lua50-32-sys bundles Lua 5.0.3 whose liolib.c calls system(), unavailable on iOS.
+# Point to our fork that stubs io_execute on iOS so the C source links.
+[patch."https://github.com/dontpanic92/lua50-32-sys"]
+lua50-32-sys = { git = "https://github.com/Bikel-tech/lua50-32-sys" }
+
 #[patch."https://github.com/dontpanic92/mini-fs"]
 #mini-fs = { path = "../mini-fs" }
 
