@@ -1,4 +1,4 @@
-#[cfg(any(windows, linux, macos))]
+#[cfg(any(windows, linux, macos, ios))]
 pub mod debug;
 
 mod disassembler;

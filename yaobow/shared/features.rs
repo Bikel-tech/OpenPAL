@@ -7,13 +7,14 @@ pub fn enable_features() {
         linux: { target_os = "linux" },
         macos: { target_os = "macos" },
         android: { target_os = "android" },
+        ios: { target_os = "ios" },
         vita: { target_os= "vita" },
 
         // Graphic Backends
-        vulkan: { any(windows, linux, macos, android) },
+        vulkan: { any(windows, linux, macos, android, ios) },
         vitagl: { vita },
 
         // Scripting
-        enable_debug: { any(windows, linux, macos) },
+        enable_debug: { any(windows, linux, macos, ios) },
     }
 }

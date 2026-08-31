@@ -119,7 +119,7 @@ fn create_reader<P: AsRef<Path>>(path: P) -> anyhow::Result<Box<dyn SeekRead>> {
     Ok(Box::new(file))
 }
 
-#[cfg(any(windows, linux, macos, android))]
+#[cfg(any(windows, linux, macos, android, ios))]
 fn create_reader<P: AsRef<Path>>(path: P) -> anyhow::Result<Box<dyn SeekRead>> {
     let file = std::fs::File::open(path.as_ref())?;
     let mem = unsafe { memmap::MmapOptions::new().map(&file)? };

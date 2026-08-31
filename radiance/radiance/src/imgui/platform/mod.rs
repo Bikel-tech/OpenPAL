@@ -2,10 +2,10 @@
 mod vita;
 #[cfg(windows)]
 mod windows;
-#[cfg(any(linux, macos, android))]
+#[cfg(any(linux, macos, android, ios))]
 mod winit;
 
-#[cfg(any(linux, macos, android))]
+#[cfg(any(linux, macos, android, ios))]
 pub use self::winit::ImguiPlatform;
 #[cfg(vita)]
 pub use vita::ImguiPlatform;

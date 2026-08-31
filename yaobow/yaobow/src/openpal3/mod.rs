@@ -7,7 +7,7 @@ pub use application::OpenPal3ApplicationLoader;
 use shared::config::YaobowConfig;
 
 pub fn run_openpal3() {
-    #[cfg(any(windows, linux, macos))]
+    #[cfg(any(windows, linux, macos, ios))]
     let config = YaobowConfig::load("openpal3.toml", "OPENPAL3").unwrap();
 
     #[cfg(android)]

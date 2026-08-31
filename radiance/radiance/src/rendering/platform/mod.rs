@@ -3,7 +3,7 @@ mod dummy;
 #[cfg(windows)]
 mod windows;
 
-#[cfg(any(linux, macos, android))]
+#[cfg(any(linux, macos, android, ios))]
 pub use ::winit::window::Window;
 #[cfg(windows)]
 pub use windows::Window;

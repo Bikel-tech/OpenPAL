@@ -23,7 +23,7 @@ pub fn create_radiance_engine(
         hwnd: platform.hwnd(),
     };
 
-    #[cfg(any(linux, macos, android))]
+    #[cfg(any(linux, macos, android, ios))]
     let window = platform.get_window();
 
     #[cfg(vulkan)]

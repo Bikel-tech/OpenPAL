@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 pub fn save_dir() -> PathBuf {
-    #[cfg(any(windows, linux, macos))]
+    #[cfg(any(windows, linux, macos, ios))]
     {
         dirs::data_dir().unwrap().join("yaobow")
     }
@@ -24,7 +24,7 @@ pub fn save_dir() -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    #[cfg(any(windows, linux, macos, android))]
+    #[cfg(any(windows, linux, macos, android, ios))]
     {
         dirs::config_dir().unwrap().join("yaobow")
     }

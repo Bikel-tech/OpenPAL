@@ -1,5 +1,5 @@
 use crate::input::{Key, KeyState};
-#[cfg(any(target_os = "macos", target_os = "android"))]
+#[cfg(any(target_os = "macos", target_os = "android", target_os = "ios"))]
 use winit::event::WindowEvent;
 use winit::event::{DeviceEvent, ElementState, Event, VirtualKeyCode};
 
@@ -46,7 +46,7 @@ impl KeyboardInput {
                 });
             }
             // on macOS / Android keyboard input events are only in WindowEvent
-            #[cfg(any(target_os = "macos", target_os = "android"))]
+            #[cfg(any(target_os = "macos", target_os = "android", target_os = "ios"))]
             Event::WindowEvent {
                 event:
                     WindowEvent::KeyboardInput {
@@ -68,7 +68,7 @@ impl KeyboardInput {
                     states[key as usize].set_pressed(true);
                 });
             }
-            #[cfg(any(target_os = "macos", target_os = "android"))]
+            #[cfg(any(target_os = "macos", target_os = "android", target_os = "ios"))]
             Event::WindowEvent {
                 event:
                     WindowEvent::KeyboardInput {

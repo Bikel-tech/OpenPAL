@@ -15,7 +15,7 @@ impl CpkFs {
         let reader = create_reader(cpk_path)?;
         let cpk_archive = RefCell::new(CpkArchive::load(reader)?);
 
-        #[cfg(any(windows, linux, macos))]
+        #[cfg(any(windows, linux, macos, ios))]
         let entry = Some(cpk_archive.borrow_mut().build_directory());
 
         #[cfg(any(android, vita))]

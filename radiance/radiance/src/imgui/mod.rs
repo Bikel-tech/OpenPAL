@@ -1,4 +1,4 @@
-#[cfg_attr(any(android, vita), path = "clipboard_nop.rs")]
+#[cfg_attr(any(android, vita, ios), path = "clipboard_nop.rs")]
 mod clipboard;
 
 mod platform;

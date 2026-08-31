@@ -13,6 +13,16 @@ pub fn instance_extension_names() -> Vec<*const c_char> {
         ash::vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
     ]
 }
+#[cfg(target_os = "ios")]
+pub fn instance_extension_names() -> Vec<*const c_char> {
+    vec![
+        ash::extensions::khr::Surface::name().as_ptr(),
+        ash::extensions::ext::MetalSurface::name().as_ptr(),
+        ash::extensions::ext::DebugUtils::name().as_ptr(),
+        ash::vk::KhrPortabilityEnumerationFn::name().as_ptr(),
+        ash::vk::KhrGetPhysicalDeviceProperties2Fn::name().as_ptr(),
+    ]
+}
 #[cfg(target_os = "linux")]
 pub fn instance_extension_names() -> Vec<*const c_char> {
     vec![

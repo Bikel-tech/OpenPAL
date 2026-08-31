@@ -7,7 +7,7 @@ use std::{
 #[cfg(windows)]
 use winapi::um::winuser;
 
-#[cfg(any(linux, macos, android))]
+#[cfg(any(linux, macos, android, ios))]
 use winit::event::Event;
 
 use crate::application::Platform;
@@ -50,7 +50,7 @@ impl CoreInputEngine {
     }
 
     fn append_message_callback_to(_self: Rc<RefCell<Self>>, platform: &mut Platform) {
-        #[cfg(any(windows, linux, macos, android))]
+        #[cfg(any(windows, linux, macos, android, ios))]
         platform.add_message_callback(Box::new(move |msg| {
             _self.borrow_mut().message_callback(msg)
         }));
@@ -62,7 +62,7 @@ impl CoreInputEngine {
             .process_message(&mut self.last_key_states, msg);
     }
 
-    #[cfg(any(linux, macos, android))]
+    #[cfg(any(linux, macos, android, ios))]
     fn message_callback(&mut self, msg: &Event<()>) {
         self.keyboard
             .process_message(&mut self.last_key_states, msg);
