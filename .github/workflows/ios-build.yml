@@ -88,10 +88,12 @@ jobs:
           if [ "${MVK_STATIC:-0}" = "1" ]; then
             echo ">>> static MoltenVK: linking libMoltenVK.a from $MVDIR"
             RF="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
-            # libMoltenVK.a references ___isPlatformVersionAtLeast. rustc links with
-            # -dead_strip, which drops our Rust shim (no reachable caller). Force the
-            # linker to load the object that defines it via -u (treat as undefined/forced-load).
-            RF="$RF -Clink-arg=-u___isPlatformVersionAtLeast"
+            # libMoltenVK.a references ___isPlatformVersionAtLeast (a clang/compiler-rt
+            # helper rustc does not link on iOS). We define it via global_asm in
+            # main.rs (emitted unconditionally, immune to Rust DCE). Mark it as an
+            # exported symbol so ld -dead_strip cannot discard it from the final
+            # binary, and keep -u as a belt-and-suspenders forced-load.
+            RF="$RF -Clink-arg=-Wl,-exported_symbol,___isPlatformVersionAtLeast -Clink-arg=-u___isPlatformVersionAtLeast"
             export RUSTFLAGS="$RF"
             echo "RUSTFLAGS=$RUSTFLAGS"
           else

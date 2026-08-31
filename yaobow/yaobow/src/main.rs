@@ -24,17 +24,6 @@ pub fn main() {
     init_logger();
     register_opengb_video_decoders();
 
-    // Keep the MoltenVK-referenced ___isPlatformVersionAtLeast shim alive (see
-    // definition above). Volatile store from the live entry point guarantees the
-    // symbol survives both LLVM DCE and ld -dead_strip.
-    #[cfg(target_os = "ios")]
-    unsafe {
-        core::ptr::write_volatile(
-            core::ptr::addr_of_mut!(IOS_SHIM_KEEP),
-            ___isPlatformVersionAtLeast as *const (),
-        );
-    }
-
     #[cfg(vita)]
     {
         run_openpal4();
@@ -101,30 +90,19 @@ fn init_logger() {
 #[export_name = "_newlib_heap_size_user"]
 pub static _NEWLIB_HEAP_SIZE_USER: u32 = 216 * 1024 * 1024;
 
-// MoltenVK (statically linked) calls ___isPlatformVersionAtLeast, a clang runtime
-// helper. rustc passes -nodefaultlibs on iOS, so the compiler-rt runtime that
-// normally provides this symbol is NOT linked, and Xcode 26's libclang_rt stub
-// can't be consumed via rustc's `static=` link mode. On the target device (iOS 26)
-// every @available(...) check resolves to true, so a constant-true shim is
-// semantically correct and keeps the link self-contained. Lives in the bin crate
-// (main.rs) because the binary does not link the lib crate.
+// MoltenVK (statically linked) references ___isPlatformVersionAtLeast, a clang
+// (compiler-rt) runtime helper that rustc does NOT link on iOS because it passes
+// -nodefaultlibs. Defining it via global_asm guarantees the symbol is emitted into
+// the object file unconditionally (Rust's LLVM release-DCE would otherwise drop an
+// unused #[no_mangle] fn, leaving the symbol undefined at link time). On iOS 26
+// every @available(...) check resolves true, so returning 1 is semantically
+// correct. The linker is told to export the symbol (see -exported_symbol in
+// ios-build.yml) so -dead_strip cannot remove it.
 #[cfg(target_os = "ios")]
-#[no_mangle]
-pub extern "C" fn ___isPlatformVersionAtLeast(
-    _platform: u32,
-    _major: u32,
-    _minor: u32,
-    _subminor: u32,
-) -> i32 {
-    1
-}
-
-// Force the linker to keep the shim above. The shim is referenced by the
-// statically linked libMoltenVK.a, but nothing in Rust calls it, so both LLVM
-// (release DCE) and ld -dead_strip would discard it, leaving the symbol
-// undefined. main() writes its address into this #[used] static via a volatile
-// store, making the symbol reachable from the live entry point so neither the
-// compiler nor the linker can drop it.
-#[cfg(target_os = "ios")]
-#[used]
-static mut IOS_SHIM_KEEP: *const () = core::ptr::null();
+core::arch::global_asm!(
+    ".globl ___isPlatformVersionAtLeast",
+    ".p2align 2",
+    "___isPlatformVersionAtLeast:",
+    "mov w0, #1",
+    "ret",
+);
