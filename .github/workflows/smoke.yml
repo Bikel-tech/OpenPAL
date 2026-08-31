@@ -1,0 +1,12 @@
+name: smoke
+
+on:
+  push:
+    branches: [ios-feasibility]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "SMOKE OK $(date)"
