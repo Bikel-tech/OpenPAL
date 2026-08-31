@@ -99,7 +99,6 @@ pub static _NEWLIB_HEAP_SIZE_USER: u32 = 216 * 1024 * 1024;
 // (main.rs) because the binary does not link the lib crate.
 #[cfg(target_os = "ios")]
 #[no_mangle]
-#[used]
 pub extern "C" fn ___isPlatformVersionAtLeast(
     _platform: u32,
     _major: u32,
