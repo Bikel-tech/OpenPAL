@@ -33,12 +33,21 @@ jobs:
       - name: Fetch MoltenVK for iOS (static lib or dylib) + diagnostics
         run: |
           set -euo pipefail
-          MV_URL=$(curl -fsSL https://api.github.com/repos/KhronosGroup/MoltenVK/releases/latest \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print([a['browser_download_url'] for a in d['assets'] if a['name']=='MoltenVK-ios.tar'][0])")
-          echo "MV_URL=$MV_URL"
-          curl -fSL -o /tmp/mvk.tar "$MV_URL"
+          # NOTE: never query the GitHub API here - unauthenticated calls are limited to
+          # 60/hour and a 403 kills the whole build. Use known-good fixed release tags.
+          MV_OK=0
+          for tag in v1.4.2 v1.4.1 v1.4.0 v1.3.0 v1.2.11; do
+            echo "trying MoltenVK tag $tag"
+            if curl -fSL -o /tmp/mvk.tar "https://github.com/KhronosGroup/MoltenVK/releases/download/$tag/MoltenVK-ios.tar"; then
+              echo "MV_URL=https://github.com/KhronosGroup/MoltenVK/releases/download/$tag/MoltenVK-ios.tar"
+              MV_OK=1
+              break
+            fi
+            echo "tag $tag failed, trying next"
+          done
+          [ "$MV_OK" = "1" ] || { echo "ERR: all MoltenVK-ios.tar downloads failed"; exit 1; }
           echo "=== tar top-level entries ==="
-          tar tf /tmp/mvk.tar | head -40
+          tar tf /tmp/mvk.tar | head -40 || true
           rm -rf /tmp/mvk && mkdir -p /tmp/mvk
           tar xf /tmp/mvk.tar -C /tmp/mvk
           echo "=== extracted MoltenVK libs ==="
