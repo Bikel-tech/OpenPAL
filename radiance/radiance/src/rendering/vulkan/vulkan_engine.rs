@@ -105,6 +105,11 @@ impl VulkanRenderingEngine {
         window: &Window,
         imgui_context: &ImguiContext,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        // On iOS there is no Vulkan loader and third-party dylibs are not allowed:
+        // MoltenVK ships as a static library, so resolve Vulkan entry points at link time.
+        #[cfg(ios)]
+        let entry = Rc::new(Entry::linked());
+        #[cfg(not(ios))]
         let entry = unsafe {
             Rc::new(Entry::load().expect(
                 "Failed to load Vulkan (MoltenVK). Make sure libMoltenVK.dylib / libvulkan.dylib is bundled \

@@ -30,12 +30,53 @@ jobs:
           brew install glslang || true
           which glslangValidator || echo "WARN: glslangValidator not found"
 
+      - name: Fetch MoltenVK for iOS (static lib or dylib) + diagnostics
+        run: |
+          set -euo pipefail
+          MV_URL=$(curl -fsSL https://api.github.com/repos/KhronosGroup/MoltenVK/releases/latest \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print([a['browser_download_url'] for a in d['assets'] if a['name']=='MoltenVK-ios.tar'][0])")
+          echo "MV_URL=$MV_URL"
+          curl -fSL -o /tmp/mvk.tar "$MV_URL"
+          echo "=== tar top-level entries ==="
+          tar tf /tmp/mvk.tar | head -40
+          rm -rf /tmp/mvk && mkdir -p /tmp/mvk
+          tar xf /tmp/mvk.tar -C /tmp/mvk
+          echo "=== extracted MoltenVK libs ==="
+          find /tmp/mvk -name 'libMoltenVK*' | head -20
+          MV_A=$(find /tmp/mvk -name 'libMoltenVK.a' | head -1 || true)
+          MV_DYLIB=$(find /tmp/mvk -name 'libMoltenVK.dylib' | head -1 || true)
+          echo "MV_A=$MV_A"
+          echo "MV_DYLIB=$MV_DYLIB"
+          if [ -n "$MV_A" ]; then
+            echo "MVDIR=$(dirname "$MV_A")" >> "$GITHUB_ENV"
+            echo "MVK_STATIC=1" >> "$GITHUB_ENV"
+            echo ">>> MODE=static (link libMoltenVK.a)"
+          elif [ -n "$MV_DYLIB" ]; then
+            echo "MVDIR=$(dirname "$MV_DYLIB")" >> "$GITHUB_ENV"
+            echo "MV_DYLIB_PATH=$MV_DYLIB" >> "$GITHUB_ENV"
+            echo "MVK_STATIC=0" >> "$GITHUB_ENV"
+            echo ">>> MODE=dynamic (bundle dylib)"
+          else
+            echo "ERR: no MoltenVK library found inside MoltenVK-ios.tar"
+            exit 1
+          fi
+
       - name: Build yaobow for aarch64-apple-ios (release)
         run: |
           set -o pipefail
           source "$HOME/.cargo/env"
-          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tail -40
-          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1)
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+          export SDKROOT
+          echo "SDKROOT=$SDKROOT"
+          if [ "${MVK_STATIC:-0}" = "1" ]; then
+            echo ">>> static MoltenVK: linking libMoltenVK.a from $MVDIR"
+            export RUSTFLAGS="-L native=$MVDIR -l static=MoltenVK -l c++ -l framework=Metal -l framework=Foundation -l framework=QuartzCore -l framework=UIKit -l framework=IOSurface -l framework=CoreGraphics -l framework=CoreFoundation"
+            echo "RUSTFLAGS=$RUSTFLAGS"
+          else
+            echo ">>> dynamic MoltenVK path (no extra link flags)"
+          fi
+          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tail -60
+          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1 || true)
           echo "BIN=$BIN"
           [ -n "$BIN" ] || { echo "NO BINARY BUILT"; exit 1; }
           ls -la "$BIN"
@@ -45,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           source "$HOME/.cargo/env"
-          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1)
+          BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1 || true)
           APP=Payload/yaobow.app
           rm -rf Payload "$APP"
           mkdir -p "$APP/Frameworks"
@@ -58,23 +99,16 @@ jobs:
           popd
           ls -la "$APP/yaobow-assets.zip"
 
-          echo "=== bundling MoltenVK (Vulkan loader for ash::Entry::load) ==="
-          MV_URL=$(curl -fsSL https://api.github.com/repos/KhronosGroup/MoltenVK/releases/latest \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print([a['browser_download_url'] for a in d['assets'] if a['name']=='MoltenVK-ios.tar'][0])")
-          echo "MV_URL=$MV_URL"
-          curl -fSL -o /tmp/mvk.tar "$MV_URL"
-          tar xf /tmp/mvk.tar -C /tmp
-          MVDIR=$(find /tmp/MoltenVK -name 'libMoltenVK.dylib' 2>/dev/null | head -1)
-          echo "MVDIR=$MVDIR"
-          [ -n "$MVDIR" ] || { echo "ERR: libMoltenVK.dylib not found inside MoltenVK-ios.tar"; exit 1; }
-          cp "$MVDIR" "$APP/Frameworks/libMoltenVK.dylib"
-          cp "$MVDIR" "$APP/Frameworks/libvulkan.dylib"
-          echo "bundled MoltenVK as libMoltenVK.dylib and libvulkan.dylib"
-          ls -la "$APP/Frameworks"
-
-          echo "=== add @executable_path/Frameworks rpath so dyld finds the bundled dylib ==="
-          xcrun install_name_tool -add_rpath @executable_path/Frameworks "$APP/yaobow" || echo "WARN: add_rpath failed"
-          xcrun otool -l "$APP/yaobow" | grep -A2 LC_RPATH || true
+          echo "=== bundling MoltenVK if dynamic ==="
+          if [ "${MVK_STATIC:-0}" = "0" ] && [ -n "${MV_DYLIB_PATH:-}" ] && [ -f "${MV_DYLIB_PATH:-}" ]; then
+            cp "$MV_DYLIB_PATH" "$APP/Frameworks/libMoltenVK.dylib"
+            cp "$MV_DYLIB_PATH" "$APP/Frameworks/libvulkan.dylib"
+            xcrun install_name_tool -add_rpath @executable_path/Frameworks "$APP/yaobow" || echo "WARN: add_rpath failed"
+            echo "bundled MoltenVK dylib (both names)"
+          else
+            echo "static MoltenVK: nothing to bundle (linked into the executable)"
+            rmdir "$APP/Frameworks" 2>/dev/null || true
+          fi
 
           echo "=== Info.plist ==="
           cat > "$APP/Info.plist" <<'PLIST'
@@ -91,7 +125,7 @@ jobs:
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>MinimumOSVersion</key><string>12.0</string>
             <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
-            <key>UIRequiredDeviceCapabilities</key><array><string>metal</string><string>vulkan</string></array>
+            <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string><string>metal</string></array>
             <key>UILaunchScreen</key><dict></dict>
             <key>UIApplicationSupportsIndirectInputEvents</key><true/>
             <key>UISupportedInterfaceOrientations</key>
