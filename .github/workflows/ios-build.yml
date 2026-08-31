@@ -57,9 +57,13 @@ jobs:
           echo "MV_A=$MV_A"
           echo "MV_DYLIB=$MV_DYLIB"
           if [ -n "$MV_A" ]; then
-            echo "MVDIR=$(dirname "$MV_A")" >> "$GITHUB_ENV"
+            MVDIR=$(dirname "$MV_A")
+            # iOS has no separate Vulkan loader; MoltenVK IS the implementation.
+            # ash(loaded/linked) and the vma crate emit -lvulkan, so expose MoltenVK as libvulkan.a.
+            cp -a "$MV_A" "$MVDIR/libvulkan.a" || ln -s "$MV_A" "$MVDIR/libvulkan.a"
+            echo "MVDIR=$MVDIR" >> "$GITHUB_ENV"
             echo "MVK_STATIC=1" >> "$GITHUB_ENV"
-            echo ">>> MODE=static (link libMoltenVK.a)"
+            echo ">>> MODE=static (link libMoltenVK.a); provided libvulkan.a -> libMoltenVK.a for ash/vma 'vulkan' link"
           elif [ -n "$MV_DYLIB" ]; then
             echo "MVDIR=$(dirname "$MV_DYLIB")" >> "$GITHUB_ENV"
             echo "MV_DYLIB_PATH=$MV_DYLIB" >> "$GITHUB_ENV"
@@ -84,7 +88,7 @@ jobs:
           else
             echo ">>> dynamic MoltenVK path (no extra link flags)"
           fi
-          cargo build -p yaobow --target aarch64-apple-ios --release 2>&1 | tail -60
+          cargo build -p yaobow --bin yaobow --target aarch64-apple-ios --release 2>&1 | tail -60
           BIN=$(find target/aarch64-apple-ios/release -maxdepth 1 -type f -name yaobow | head -1 || true)
           echo "BIN=$BIN"
           [ -n "$BIN" ] || { echo "NO BINARY BUILT"; exit 1; }
